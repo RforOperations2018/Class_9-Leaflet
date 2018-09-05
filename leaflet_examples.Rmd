@@ -1,0 +1,140 @@
+---
+title: "Leaflet Examples"
+author: "Geoffrey Arnold"
+date: "9/5/2018"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+require(rgdal)
+require(leaflet)
+require(leaflet.extras)
+
+require(dplyr)
+require(readxl)
+require(stringr)
+```
+
+# Leaflet Examples
+
+## Getting Spatial Data
+
+```{r}
+cds.load <- readOGR("./cb_2015_us_cd114_500k/cb_2015_us_cd114_500k.shp", layer = "cb_2015_us_cd114_500k", GDAL1_integer64_policy = TRUE)
+plot(cds.load)
+```
+
+## Merging Table Data to your shapefile
+
+```{r}
+op_data <- read_excel("Geographies_of_Opportunity_Ranking_Well_Being_by_Congressional_District_(114th_Congress).xlsx") %>%
+  mutate(Number = str_pad(Number, 4, pad = "0"))
+
+# Just having the matching GEOID's
+cds <- cds.load[cds.load$GEOID %in% op_data$Number,]
+
+cds@data <- merge(cds@data, op_data, sort = FALSE, by.x = "GEOID", by.y = "Number")
+```
+
+# Polygon
+
+```{r}
+pal <- colorNumeric(
+  palette = "Purples",
+  domain = cds$`Life Expectancy at Birth (years)`)
+
+leaflet(data = cds) %>%
+  addProviderTiles("Stamen.Toner") %>%
+  addPolygons(color = ~pal(`Life Expectancy at Birth (years)`), popup = ~paste0("<b>", `Congressional District`, ":</b> ", round(`Life Expectancy at Birth (years)`, 2), " years")) %>%
+  addLegend(position = "bottomright", pal = pal, values = cds$`Life Expectancy at Birth (years)`, title = "Avg Life Expectancy<br>at Birth (years)")
+```
+
+```{r}
+rivers <- readOGR("./ne_10m_rivers_lake_centerlines")
+plot(rivers)
+
+leaflet(data = rivers) %>%
+  addProviderTiles("Esri.WorldTerrain", options = providerTileOptions(noWrap = TRUE)) %>%
+  addPolylines(color = "#63CBD3", popup = ~name_en)
+```
+
+## Points from GEOJSON
+
+```{r}
+polls <- readOGR("Allegheny_County_Polling_Place_Locations_November_2016.geojson")
+
+leaflet(data = polls) %>%
+  addProviderTiles("OpenStreetMap.Mapnik") %>%
+  addMarkers(popup = ~paste0(LocName, ": ", NewAddress, " ", City, " PA ", Zip))
+```
+
+## Circle Markers from API Table
+
+```{r}
+require(httr)
+require(jsonlite)
+
+ckanSQL <- function(url) {
+  # Make the Request
+  r <- RETRY("GET", url)
+  # Extract Content
+  c <- content(r, "text")
+  # Basic gsub to make NA's consistent with R
+  json <- gsub('NaN', 'NA', c, perl = TRUE)
+  # Create Dataframe
+  data.frame(jsonlite::fromJSON(json)$result$records)
+}
+
+url <- paste0("https://data.wprdc.org/api/action/datastore_search_sql?sql=SELECT%20*%20FROM%20%2276fda9d0-69be-4dd5-8108-0de7907fc5a4%22%20WHERE%20%22CREATED_ON%22%20%3E=%20%27", as.character(Sys.Date() - 30), "%27%20AND%20%22CREATED_ON%22%20%3C=%20%27", as.character(Sys.Date()), "%27%20AND%20%22REQUEST_TYPE%22%20=%20%27Potholes%27")
+     
+# Load and clean data
+potholes <- ckanSQL(url) %>%
+ mutate(date = as.Date(CREATED_ON),
+        STATUS = as.factor(ifelse(STATUS == 1, "Closed", "Open"))) %>%
+  filter(X != 0 & Y != 0)
+
+# Custom Palette
+pal311 <- colorFactor(c("#d73027", "#1a9850"), c("Closed", "Open"))
+
+leaflet() %>%
+  addProviderTiles("OpenStreetMap.HOT") %>%
+  addCircleMarkers(data = potholes, lng = ~X, lat = ~Y, radius = 1.5, color = ~pal311(STATUS)) %>%
+  addLegend(position = "topright" , pal = pal311, values = potholes$STATUS, title = "Status")
+```
+
+## Points Awesome Markers
+
+```{r}
+url <- paste0("https://data.wprdc.org/api/action/datastore_search_sql?sql=SELECT%20*%20FROM%20%2276fda9d0-69be-4dd5-8108-0de7907fc5a4%22%20WHERE%20%22CREATED_ON%22%20%3E=%20%27", as.character(Sys.Date() - 7), "%27%20AND%20%22CREATED_ON%22%20%3C=%20%27", as.character(Sys.Date()), "%27%20AND%20%22REQUEST_TYPE%22%20IN%20(%27Potholes%27,%27Overgrowth%27)")
+
+icons <- awesomeIconList(
+  Potholes = makeAwesomeIcon(icon = "road", library = "fa", markerColor = "gray"),
+  Overgrowth = makeAwesomeIcon(icon = "leaf", library = "fa", markerColor = "green")
+)
+
+potOver <- ckanSQL(url) %>%
+ mutate(date = as.Date(CREATED_ON),
+        STATUS = as.factor(ifelse(STATUS == 1, "Closed", "Open"))) %>%
+  filter(X != 0 & Y != 0)
+
+leaflet() %>%
+  addProviderTiles("OpenStreetMap.HOT") %>%
+  addAwesomeMarkers(data = potOver, lng = ~X, lat = ~Y, icon = ~icons[REQUEST_TYPE], popup = ~REQUEST_TYPE)
+```
+
+## Clusters
+
+```{r}
+url <- paste0("https://data.wprdc.org/api/action/datastore_search_sql?sql=SELECT%20*%20FROM%20%2276fda9d0-69be-4dd5-8108-0de7907fc5a4%22%20WHERE%20%22CREATED_ON%22%20%3E=%20%27", as.character(Sys.Date() - 30), "%27%20AND%20%22CREATED_ON%22%20%3C=%20%27", as.character(Sys.Date()), "%27")
+
+dat311 <- ckanSQL(url) %>%
+ mutate(date = as.Date(CREATED_ON),
+        STATUS = as.factor(ifelse(STATUS == 1, "Closed", "Open"))) %>%
+  filter(X != 0 & Y != 0)
+
+leaflet() %>%
+  addProviderTiles("OpenStreetMap.HOT") %>%
+  addCircleMarkers(data = dat311, lng = ~X, lat = ~Y, radius = 1.5, color = ~pal311(STATUS), clusterOptions = markerClusterOptions()) %>%
+  addLegend(position = "topright" , pal = pal311, values = dat311$STATUS, title = "Status")
+```
