@@ -16,16 +16,14 @@ require(readxl)
 require(stringr)
 ```
 
-# Leaflet Examples
-
-## Getting Spatial Data
+# Getting Spatial Data
 
 ```{r}
 cds.load <- readOGR("./cb_2015_us_cd114_500k/cb_2015_us_cd114_500k.shp", layer = "cb_2015_us_cd114_500k", GDAL1_integer64_policy = TRUE)
 plot(cds.load)
 ```
 
-## Merging Table Data to your shapefile
+# Merging Table Data to your shapefile
 
 ```{r}
 op_data <- read_excel("Geographies_of_Opportunity_Ranking_Well_Being_by_Congressional_District_(114th_Congress).xlsx") %>%
@@ -37,7 +35,66 @@ cds <- cds.load[cds.load$GEOID %in% op_data$Number,]
 cds@data <- merge(cds@data, op_data, sort = FALSE, by.x = "GEOID", by.y = "Number")
 ```
 
+# Blank map with basemap
+
+```{r}
+leaflet() %>%
+  addProviderTiles(providers$Esri.WorldImagery)
+```
+
+# Blank map with no warp
+
+```{r}
+leaflet() %>%
+  addProviderTiles(providers$Esri.WorldImagery, options = providerTileOptions(noWrap = TRUE))
+```
+
+# Blank map with provider selector
+
+```{r}
+leaflet() %>%
+  # Basemaps
+  addTiles(group = "OSM (default)") %>%
+  addProviderTiles("Stamen.Toner", group = "Toner") %>%
+  addProviderTiles("Stamen.TonerLite", group = "Toner Lite") %>%
+  # Layers control
+  addLayersControl(
+    baseGroups = c("OSM (default)", "Toner", "Toner Lite"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+```
+
+
 # Shape
+
+```{r}
+leaflet(data = cds) %>%
+  addProviderTiles("Stamen.Toner") %>%
+  addPolygons()
+```
+
+# Lines
+
+```{r}
+rivers <- readOGR("./ne_10m_rivers_lake_centerlines")
+
+leaflet(data = rivers) %>%
+  addProviderTiles("Esri.WorldTerrain", options = providerTileOptions(noWrap = TRUE)) %>%
+  addPolylines(color = "#63CBD3")
+```
+
+# Line with Popups
+
+```{r}
+rivers <- readOGR("./ne_10m_rivers_lake_centerlines")
+plot(rivers)
+
+leaflet(data = rivers) %>%
+  addProviderTiles("Esri.WorldTerrain", options = providerTileOptions(noWrap = TRUE)) %>%
+  addPolylines(color = "#63CBD3", popup = ~name_en)
+```
+
+## Shape with Colors
 
 ```{r}
 pal <- colorNumeric(
@@ -50,15 +107,20 @@ leaflet(data = cds) %>%
   addLegend(position = "bottomright", pal = pal, values = cds$`Life Expectancy at Birth (years)`, title = "Avg Life Expectancy<br>at Birth (years)")
 ```
 
-# Lines
+# Points
+
+## Circle Markers
 
 ```{r}
-rivers <- readOGR("./ne_10m_rivers_lake_centerlines")
-plot(rivers)
+potholes <- read.csv("311_potholes.csv")
 
-leaflet(data = rivers) %>%
-  addProviderTiles("Esri.WorldTerrain", options = providerTileOptions(noWrap = TRUE)) %>%
-  addPolylines(color = "#63CBD3", popup = ~name_en)
+# Custom Palette
+pal311 <- colorFactor(c("#d73027", "#1a9850"), c("Closed", "Open"))
+
+leaflet() %>%
+  addProviderTiles("OpenStreetMap.HOT") %>%
+  addCircleMarkers(data = potholes, lng = ~X, lat = ~Y, radius = 1.5, color = ~pal311(STATUS)) %>%
+  addLegend(position = "topright" , pal = pal311, values = potholes$STATUS, title = "Status")
 ```
 
 ## Points from GEOJSON
@@ -69,23 +131,6 @@ polls <- readOGR("Allegheny_County_Polling_Place_Locations_November_2016.geojson
 leaflet(data = polls) %>%
   addProviderTiles("OpenStreetMap.Mapnik") %>%
   addMarkers(popup = ~paste0(LocName, ": ", NewAddress, " ", City, " PA ", Zip))
-```
-
-## Circle Markers from API Table
-
-```{r}
-require(httr)
-require(jsonlite)
-
-potholes <- read.csv("311_potholes.csv")
-
-# Custom Palette
-pal311 <- colorFactor(c("#d73027", "#1a9850"), c("Closed", "Open"))
-
-leaflet() %>%
-  addProviderTiles("OpenStreetMap.HOT") %>%
-  addCircleMarkers(data = potholes, lng = ~X, lat = ~Y, radius = 1.5, color = ~pal311(STATUS)) %>%
-  addLegend(position = "topright" , pal = pal311, values = potholes$STATUS, title = "Status")
 ```
 
 ## Points Awesome Markers
